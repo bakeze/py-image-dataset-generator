@@ -17,7 +17,7 @@ def _subdir(name):
 
 
 def image_padding():
-    files = sorted(os.scandir(_subdir("sharpened")),
+    files = sorted(os.scandir(_subdir("contrast")),
                    key=lambda f: int(f.name.split("_")[1].split(".")[0]))
     for index, image in enumerate(files):
         image = Image.open(image.path)
@@ -206,18 +206,6 @@ def segmentation(input_dir="img",
 
         img_index += 1
 
-    # write CSV summary
-    fieldnames = ["image_path", "mask_index", "mask_area", "bbox_area",
-                  "mask_to_bbox", "mask_to_image", "black_in_bbox", "black_ratio",
-                  "bbox_aspect", "num_contours", "accepted", "reject_reason"]
-    with open(stats_csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
-
-    if verbose:
-        print(f"Saved {len(saved)} accepted crops. Stats CSV: {stats_csv_path}")
 
     return saved, stats_csv_path
 
@@ -255,18 +243,18 @@ def enhance_contrast():
         filename = os.path.join(_subdir("contrast"), f"contrast_{index}.png")
         cv.imwrite(filename, enhanced)
 
-def sharpening(strength: float = 0.9):
-    files = sorted(os.scandir(_subdir("contrast")),
+def sharpening(strength: float = .7):
+    files = sorted(os.scandir("preprocessed/contrast"),
                    key=lambda f: int(f.name.split("_")[1].split(".")[0]))
 
     for index, image in enumerate(files):
         img = cv.imread(image.path)
-        kernel = np.array([[-1, -1, -1],
-                           [-1,  9, -1],
-                           [-1, -1, -1]]) * strength
+        kernel = np.array([[0.0, -1.0, 0.0],
+                           [-1.0, 5.0, -1.0],
+                           [0.0, -1.0, 0.0]], dtype=np.float32)
 
         sharpened = cv.filter2D(img, -1, kernel)
-        filename = os.path.join(_subdir("sharpened"), f"sharpening_{index}.png")
+        filename = os.path.join("preprocessed/sharpened", f"sharpening_{index}.png")
         cv.imwrite(filename, sharpened)
 
 def data_preprocess(dir):
@@ -277,6 +265,6 @@ def data_preprocess(dir):
     segmentation(input_dir=dir, save_all_masks=False, thresholds=thresholds)
     denoise()
     enhance_contrast()
-    sharpening()
+    # sharpening()
     image_padding()
 
