@@ -6,10 +6,18 @@ import numpy as np
 import cv2 as cv
 import os
 
+# Base directory for preprocessed outputs (relative to project root)
+_BASE_DIR = os.path.join(os.path.dirname(__file__), "preprocessed")
+
+def _subdir(name):
+    """Return the absolute path to a preprocessed sub-directory."""
+    path = os.path.join(_BASE_DIR, name)
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def image_padding():
-    files = sorted(os.scandir("preprocessed/sharpened"),
+    files = sorted(os.scandir(_subdir("sharpened")),
                    key=lambda f: int(f.name.split("_")[1].split(".")[0]))
     for index, image in enumerate(files):
         image = Image.open(image.path)
@@ -31,7 +39,7 @@ def image_padding():
         new_img = new_img.resize((224, 224), Image.LANCZOS)
 
         # Save
-        output_path = os.path.join("preprocessed/padding", f"padded_{index}.png")
+        output_path = os.path.join(_subdir("padding"), f"padded_{index}.png")
         new_img.save(output_path)
 
     print("Padding and resizing complete!")
@@ -58,12 +66,12 @@ def clean_mask(mask, close_kernel=5, min_component_area=500):
     return cleaned
 
 def segmentation(input_dir="img",
-                 output_dir="preprocessed/segmentation",
+                 output_dir=None,
                  sam_weights_path="sam3.pt",
                  save_all_masks=False,
                  close_kernel=5,
                  min_component_area=500,
-                 stats_csv_path="preprocessed/segmentation/segmentation_stats.csv",
+                 stats_csv_path=None,
                  thresholds=None,
                  verbose=True):
     """
@@ -74,6 +82,10 @@ def segmentation(input_dir="img",
         - max_black_ratio:    0.6       # black_in_bbox / bbox_area must be <= 0.6
         - min_mask_to_image:  0.0005    # mask must be >= 0.05% of full image
     """
+    if output_dir is None:
+        output_dir = _subdir("segmentation")
+    if stats_csv_path is None:
+        stats_csv_path = os.path.join(_subdir("segmentation"), "segmentation_stats.csv")
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(os.path.dirname(stats_csv_path), exist_ok=True)
 
@@ -211,14 +223,14 @@ def segmentation(input_dir="img",
 
 def denoise():
 
-    for index ,image in enumerate (os.scandir("preprocessed/segmentation")):
+    for index, image in enumerate(os.scandir(_subdir("segmentation"))):
         img = cv.imread(image.path)
         dst = cv.fastNlMeansDenoisingColored(img, None, 10, 10, 7, 21)
-        filename = os.path.join("preprocessed/denoise", f"denoise_{index}.png")
+        filename = os.path.join(_subdir("denoise"), f"denoise_{index}.png")
         cv.imwrite(filename, dst)
 
 def enhance_contrast():
-    files = sorted(os.scandir("preprocessed/denoise"),
+    files = sorted(os.scandir(_subdir("denoise")),
                    key=lambda f: int(f.name.split("_")[1].split(".")[0]))
 
     for index,image in enumerate (files):
@@ -240,11 +252,11 @@ def enhance_contrast():
         enhanced = cv.cvtColor(lab_enhanced, cv.COLOR_LAB2BGR)
 
         # Save result
-        filename = os.path.join("preprocessed/contrast", f"contrast_{index}.png")
+        filename = os.path.join(_subdir("contrast"), f"contrast_{index}.png")
         cv.imwrite(filename, enhanced)
 
 def sharpening(strength: float = 0.9):
-    files = sorted(os.scandir("preprocessed/contrast"),
+    files = sorted(os.scandir(_subdir("contrast")),
                    key=lambda f: int(f.name.split("_")[1].split(".")[0]))
 
     for index, image in enumerate(files):
@@ -254,7 +266,7 @@ def sharpening(strength: float = 0.9):
                            [-1, -1, -1]]) * strength
 
         sharpened = cv.filter2D(img, -1, kernel)
-        filename = os.path.join("preprocessed/sharpened", f"sharpening_{index}.png")
+        filename = os.path.join(_subdir("sharpened"), f"sharpening_{index}.png")
         cv.imwrite(filename, sharpened)
 
 def data_preprocess(dir):
