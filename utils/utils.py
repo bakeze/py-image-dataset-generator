@@ -6,7 +6,7 @@ from typing import List
 from numpy.core.multiarray import ndarray
 from skimage import io
 
-from image_grabber.grab_settings import DEBUG_MODE
+DEBUG_MODE = False
 
 
 class StringUtil:

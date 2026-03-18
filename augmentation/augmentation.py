@@ -3,7 +3,6 @@ import random
 import time
 
 from augmentation.operations import OperationPipeline
-from image_grabber.grab_settings import DEBUG_MODE
 from utils.utils import FileUtil, ProgressBarUtil, NoImageFoundException, ExceptionUtil
 
 

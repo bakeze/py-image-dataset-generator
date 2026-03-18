@@ -1,153 +1,159 @@
-# Image dataset generator for Deep learning projects
+# Image Dataset Preprocessing & Augmentation Pipeline
 
-[![Join the chat at https://gitter.im/py-image-dataset-generator/Lobby](https://badges.gitter.im/py-image-dataset-generator/Lobby.svg)](https://gitter.im/py-image-dataset-generator/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+Pipeline Python pour préparer et augmenter un dataset d'images destiné à l'entraînement de modèles de Deep Learning.
 
-### Get a large image dataset with minimal effort
+## Fonctionnalités
 
-This tool **automatically collect images** from Google or Bing and optionally resize them. 
+Le projet se compose de deux étapes enchaînées automatiquement :
 
-```
-python download.py "funny cats" -limit=100 -dest=folder_name -resize=250x250
-```
+### Étape 1 — Prétraitement des images (Data Preprocessing)
 
-Then you can **randomly generate new images** with image augmentation from an existing folder. It will add noise, rotate, transform, flip, blur on random images.
+| Opération | Description |
+|---|---|
+| **Segmentation (SAM)** | Détection et extraction automatique des objets via le modèle SAM (Segment Anything Model) |
+| **Débruitage** | Suppression du bruit avec `cv2.fastNlMeansDenoisingColored` |
+| **Amélioration du contraste** | Égalisation adaptative (CLAHE) sur le canal L en espace LAB |
+| **Netteté (Sharpening)** | Filtre de netteté par convolution |
+| **Padding & Redimensionnement** | Mise à l'échelle carrée (224×224) avec fond noir |
 
-```
-python augmentation.py -folder=my_folder/funny_cats -limit=10000
-```
+### Étape 2 — Augmentation des données (Data Augmentation)
 
-TADA ! In few seconds you will get 10 000 different images of funny cats to train your favorite deep learning algorithm !
+Génération d'images augmentées à partir des images prétraitées :
 
-### Table of content
+- **Rotation** aléatoire (probabilité : 50 %, ±25°)
+- **Flou** (probabilité : 10 %)
+- **Bruit aléatoire** (probabilité : 50 %)
+- **Flip horizontal** (probabilité : 30 %)
+- **Flip vertical** (optionnel)
 
-* [Pre-requirements](#pre-requirements)
-* [Installation](#installation)
-* [Run unit tests](#run-unit-tests)
-* [Usage](#usage)
-    * [Download images](#download-images-from-the-web)
-    * [Image augmentation](#image-augmentation)
-    * [Create a custom image augmentation pipeline](#create-a-custom-image-augmentation-pipeline)
-* [Common issues](#common-issues)
-* [Acknowledgments](#acknowledgments)
+Les probabilités et opérations sont configurables dans `augmentation_config.py`.
 
-### Pre-requirements
+## Prérequis
 
-This project is tested with Python 3.6.4 and more.
+- Python 3.8+
+- GPU compatible CUDA (recommandé pour SAM)
+- Poids du modèle SAM (`sam3.pt` par défaut)
 
-*Linux*
+## Installation
 
-- chromium-browser package (`sudo apt-get install chromium-browser`)
-
-*Windows*
-
-- Chrome should be installed
-- [Microsoft Visual C++ Build Tools](https://www.scivision.co/python-windows-visual-c++-14-required/) (scikit image dependency, [see for more info](https://www.scivision.co/python-windows-visual-c++-14-required/))
-
-### Installation
-
-Git clone the project
-
-Get the python dependencies
-
-```
+```bash
+git clone <repo-url>
+cd py-image-dataset-generator
 pip install -r requirements.txt
 ```
 
-### Run unit tests
+## Utilisation
 
-```
-python -m unittest discover
-```
+### Pipeline complète (preprocessing + augmentation)
 
-### Usage
-
-#### Download images from the web
-
-```
-python download.py "red car" -limit=150 -dest=folder_name -resize=250x250
-```
-    
-After running this command, you will have 150 images of *red cars* (resized 250px by 250px) in the /folder_name/red_car folder. 
-
-You can find all possible parameters in the table below (also available with the `--help` parameter) :
-
-Parameters  | Description
----    | --- 
-Keyword *(required)* | The first parameter should be a keyword describing the images to search for. <br><br> `python download.py "red car"`
-Destination folder <br>*-dest or -d* | Specify the destination folder to save files (default: images/) <br><br> `python download.py "red car" -dest=your_folder`
-Limit number <br>*-limit or -l* | Specify the number of files to download (default: 50). See the note below for the maximum limit. <br><br> `python download.py "red car" -limit=200`
-Thumbnail only <br>*-thumbnail or -thumb* | Download the thumbnail instead of the full original image <br><br>   `python download.py "red car" -thumbnail`
-Resize image <br>*-resize* | Resize downloaded images on the fly, to get a dataset formatted with the same size (default: no resizing). The parameter should be a couple of number representing the width and height (32x32 will ouput 32px x 32px image files) <br><br>  `python download.py "red car" -resize=32x32"`
-Grab source <br>*-source, -src or -allsources* |  Choose the website to grab images : Google and/or Bing (default: Google). *-allsources* parameter can be use to. It will equally mix image files from all available sources <br><br> `python download.py "red car" -source=Google` (single source) <br> `python download.py "red car" -source=Google -source=Bing` (multi source)<br> `python download.py "red car" -allsources` (all sources)
-
-Note : There are known limitations for the total number of images you can download in one use of the `download.py` script. Bing and Google won't let you download more than 800 images each, so the maximum for one download is around 1600 images if you use the `-allsources` parameter.
-
-#### Image augmentation
-
-```
-python augmentation.py -folder=your_folder -limit=10000
+```bash
+python pipeline.py -input=path/to/raw/images -output=path/to/augmented -limit=500
 ```
 
-10 000 augmented images will output by default to the "output" folder inside your image folder.
+### Paramètres
 
-By default, this command will randomly apply these image transformations :
+| Paramètre | Description |
+|---|---|
+| `-input`, `-i` **(requis)** | Dossier contenant les images brutes |
+| `-output`, `-o` | Dossier de destination pour les images augmentées (défaut : `output`) |
+| `-limit`, `-l` | Nombre d'images augmentées à générer (défaut : 500) |
+| `-sam_weights` | Chemin vers les poids SAM (défaut : `sam3.pt`) |
+| `--skip-preprocessing` | Sauter le prétraitement et lancer uniquement l'augmentation |
+| `--preprocess-only` | Lancer uniquement le prétraitement (pas d'augmentation) |
 
-- Blur image (with a probability of 10%)
-- Add Random noise (with a probability of 50%)
-- Horizontal flip (with a probability of 30%)
-- Left or Right rotation between 0 or 25 degree (with a probability of 50%)
+### Exemples
 
-- *... to be completed*
+**Pipeline complète :**
+```bash
+python pipeline.py -input=mes_images -output=dataset_augmente -limit=1000
+```
 
-You can customize these default values by editing the `augmentation_config.py` file or by making [your own image augmentation pipeline](#create-a-custom-image-augmentation-pipeline)
+**Prétraitement seul :**
+```bash
+python pipeline.py -input=mes_images --preprocess-only
+```
 
-You can find all possible parameters in the table below (also available with the `--help` parameter) :
+**Augmentation seule** (sur des images déjà prétraitées) :
+```bash
+python pipeline.py -input=data_preprocessing/preprocessed/padding --skip-preprocessing -output=dataset_augmente -limit=2000
+```
 
-Parameters  | Description
----    | --- 
-Keyword *(required)* | Folder input path containing images that will be augmented.`
-Destination folder <br>*-dest or -d* | Specify the destination folder to save augmented files (default: /your_folder/output) <br><br> `python augmentation.py -folder=your_folder -limit=50 -dest=other_folder`
-Limit number <br>*-limit or -l* | Number of image to generate by augmentation (default: 50)
+### Augmentation seule (mode standalone)
 
-#### Create a custom image augmentation pipeline
+```bash
+python augmentation.py -folder=mon_dossier -limit=10000 -dest=dossier_sortie
+```
+
+### Pipeline personnalisée en Python
 
 ```python
 from augmentation.augmentation import DatasetGenerator
 
 pipeline = DatasetGenerator(
-    folder_path="images/red_car/",
+    folder_path="images/preprocessed/",
     num_files=5000,
     save_to_disk=True,
-    folder_destination="images/red_car/results"
+    folder_destination="images/results"
 )
 pipeline.rotate(probability=0.5, max_left_degree=25, max_right_degree=25)
 pipeline.random_noise(probability=0.5)
 pipeline.blur(probability=0.5)
-pipeline.vertical_flip(probability=0.1)
 pipeline.horizontal_flip(probability=0.2)
-pipeline.resize(probability=1, width=20, height=20)
 pipeline.execute()
 ```
 
-That's it !
+## Structure du projet
 
-### Common issues
+```
+├── pipeline.py                  # Point d'entrée principal (preprocessing → augmentation)
+├── augmentation.py              # Point d'entrée standalone pour l'augmentation
+├── augmentation_config.py       # Configuration des opérations d'augmentation
+├── requirements.txt             # Dépendances Python
+├── augmentation/
+│   ├── augmentation.py          # Classe DatasetGenerator
+│   └── operations.py            # Opérations d'augmentation (Rotate, Blur, Flip, etc.)
+├── data_preprocessing/
+│   ├── datapreprocessing.py     # Pipeline de prétraitement (segmentation → padding)
+│   └── preprocessed/            # Sorties intermédiaires du prétraitement
+│       ├── segmentation/
+│       ├── denoise/
+│       ├── contrast/
+│       ├── sharpened/
+│       └── padding/
+├── utils/
+│   └── utils.py                 # Utilitaires (fichiers, barre de progression)
+└── tests/
+    └── utils/
+        └── test_string_utils.py
+```
 
-**WebDriverException: Message: unknown error: cannot find Chrome binary**
+## Configuration
 
-Make sure chromedriver is well installed on your PATH (run the `which chromedriver` command on Linux and then `echo $PATH`). Also Chrome should be installed on your machine (or the `chromium-package` for Linux).
+Modifiez `augmentation_config.py` pour ajuster les opérations d'augmentation :
 
-You can install the chromedriver with this command ([more information here](https://pypi.python.org/pypi/chromedriver_installer)):
-`pip install chromedriver_installer --install-option="--chromedriver-version=2.35"`
+```python
+DEFAULT_OPERATIONS = [
+    'rotate',
+    'blur',
+    'random_noise',
+    'horizontal_flip',
+    # 'vertical_flip'
+]
 
-**error: Microsoft Visual C++ 14.0 is required. Get it with "Microsoft Visual C++ Build Tools": [http://landinghub.visualstudio.com/visual-cpp-build-tools](https://www.scivision.co/python-windows-visual-c++-14-required/)**
+DEFAULT_ROTATE_PROBABILITY = 0.5
+DEFAULT_ROTATE_MAX_LEFT_DEGREE = 25
+DEFAULT_ROTATE_MAX_RIGHT_DEGREE = 25
+DEFAULT_BLUR_PROBABILITY = 0.1
+DEFAULT_RANDOM_NOISE_PROBABILITY = 0.5
+DEFAULT_HORIZONTAL_FLIP_PROBABILITY = 0.3
+DEFAULT_VERTICAL_FLIP_PROBABILITY = 0.3
+```
 
-As this repo use scikit-image for image processing, on Windows you need Microsoft Visual C++ Build Tools which is provided with Visual Studio (think to check the C++ options on installation). You can install it with the link below.
+## Dépendances
 
-### Acknowledgments
-
-- This repo is *largely inspired* by the work of Marcus Bloice on his [Augmentor](https://arxiv.org/abs/1708.04680) project. Many thanks for the great work and the useful documentation.
-
-- I also pick some ideas from [this great series of articles](https://www.pyimagesearch.com/2017/12/11/image-classification-with-keras-and-deep-learning/) for the *automatic* part to grab images.
-
-The goal of this repo is mainly to provide the smaller python library as possible to generate an image dataset, without a big framework like Keras, Tflearn etc, which can be hard to configure and install for new people working on Data Science / AI.
+- `scipy` — Calcul scientifique
+- `scikit-image` — Traitement d'images (IO, transformations)
+- `opencv-python` — Vision par ordinateur (débruitage, contours, etc.)
+- `numpy` — Manipulation de tableaux
+- `Pillow` — Manipulation d'images (padding, resize)
+- `ultralytics` — Modèle SAM pour la segmentation
