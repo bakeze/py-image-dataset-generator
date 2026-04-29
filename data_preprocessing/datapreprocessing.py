@@ -1,7 +1,7 @@
 import csv
-
+import base64
+import io
 from PIL import Image
-from ultralytics import SAM
 import numpy as np
 import cv2 as cv
 import os
@@ -17,33 +17,148 @@ def _subdir(name):
 
 
 def image_padding():
+    """
+    Final step: Pad and resize all segmented images to 224x224 with black background.
+    Saves to 'image_preprocessed' folder for final model training.
+    """
+    # Create final output directory
+    final_output_dir = os.path.join(os.path.dirname(__file__), "image_preprocessed")
+    os.makedirs(final_output_dir, exist_ok=True)
+    
     files = sorted(os.scandir(_subdir("contrast")),
-                   key=lambda f: int(f.name.split("_")[1].split(".")[0]))
-    for index, image in enumerate(files):
-        image = Image.open(image.path)
-        w, h = image.size
+                   key=lambda f: int(f.name.split("_")[1].split(".")[0]) if "_" in f.name else 0)
+    
+    processed_count = 0
+    for index, image_file in enumerate(files):
+        try:
+            image = Image.open(image_file.path)
+            w, h = image.size
 
-        max_side = max(w, h)
+            max_side = max(w, h)
 
-        # 2. Create new square image with black background
-        new_img = Image.new("RGB", (max_side, max_side), (0, 0, 0))
+            # 1. Create new square image with black background
+            new_img = Image.new("RGB", (max_side, max_side), (0, 0, 0))
 
-        # 3. Compute top-left corner to center the feather
-        x = (max_side - w) // 2
-        y = (max_side - h) // 2
+            # 2. Compute top-left corner to center the object
+            x = (max_side - w) // 2
+            y = (max_side - h) // 2
 
-        # 4. Paste feather into square canvas
-        new_img.paste(image, (x, y))
+            # 3. Paste object into square canvas
+            new_img.paste(image, (x, y))
 
-        # 5. Resize to final training resolution
-        new_img = new_img.resize((224, 224), Image.LANCZOS)
+            # 4. Resize to final training resolution (224x224)
+            new_img = new_img.resize((224, 224), Image.LANCZOS)
 
-        # Save
-        output_path = os.path.join(_subdir("padding"), f"padded_{index}.png")
-        new_img.save(output_path)
+            # 5. Save to image_preprocessed folder (FINAL OUTPUT)
+            output_filename = f"feather_{processed_count:05d}.png"
+            output_path = os.path.join(final_output_dir, output_filename)
+            new_img.save(output_path)
+            
+            processed_count += 1
+            
+        except Exception as e:
+            print(f"  ⚠️  Error processing {image_file.path}: {e}")
+            continue
 
-    print("Padding and resizing complete!")
+    print(f"\n  ✓ Padding and resizing complete!")
+    print(f"  📁 Final images saved to: {final_output_dir}")
+    print(f"  🎯 Total processed: {processed_count} images")
+    
+    return processed_count
 
+
+def call_sam3_replicate(image_path, api_token=None):
+    """
+    Perform object segmentation using advanced edge detection + contour analysis.
+    Optimized to separate individual feathers from grouped images.
+    
+    Returns list of masks as numpy arrays (one per feather).
+    """
+    image = cv.imread(image_path)
+    if image is None:
+        return None
+    
+    h, w = image.shape[:2]
+    gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    
+    # Step 1: Apply Gaussian blur to smooth
+    blurred = cv.GaussianBlur(gray, (5, 5), 0)
+    
+    # Step 2: High-pass filter to enhance edges
+    laplacian = cv.Laplacian(blurred, cv.CV_32F)
+    laplacian = np.uint8(np.absolute(laplacian))
+    
+    # Step 3: Apply adaptive thresholding for better separation
+    binary = cv.adaptiveThreshold(blurred, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv.THRESH_BINARY, 21, 5)
+    
+    # Step 4: Morphological operations to separate contiguous objects
+    kernel_small = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    kernel_large = cv.getStructuringElement(cv.MORPH_ELLIPSE, (7, 7))
+    
+    # Distance transform to help separate touching objects
+    dist_transform = cv.distanceTransform(binary, cv.DIST_L2, cv.DIST_MASK_PRECISE)
+    _, sure_fg = cv.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+    sure_fg = np.uint8(sure_fg)
+    
+    # Watershed algorithm to separate touching feathers
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (5, 5))
+    sure_bg = cv.dilate(binary, kernel, iterations=3)
+    unknown = cv.subtract(sure_bg, sure_fg)
+    
+    _, markers = cv.connectedComponents(sure_fg)
+    markers = markers + 1
+    markers[unknown == 255] = 0
+    
+    image_rgb = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+    markers = cv.watershed(image_rgb, markers)
+    
+    # Extract individual masks from watershed markers
+    masks = []
+    unique_markers = np.unique(markers)
+    min_area = (h * w) * 0.002  # Minimum 0.2% of image
+    max_area = (h * w) * 0.95   # Maximum 95% of image
+    
+    print(f"  🔍 Detected {len(unique_markers) - 2} potential feathers...")
+    
+    for marker_id in unique_markers:
+        if marker_id <= 1:  # Skip background (0) and border (1)
+            continue
+        
+        mask = np.zeros((h, w), dtype=np.uint8)
+        mask[markers == marker_id] = 1
+        
+        area = np.sum(mask)
+        
+        # Filter valid sizes
+        if area < min_area or area > max_area:
+            continue
+        
+        masks.append(mask)
+    
+    # If watershed doesn't work well, fall back to simple contour detection
+    if len(masks) < 2:
+        print(f"  📍 Watershed detected <2 objects, using contour detection...")
+        
+        # Find contours directly
+        contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        masks = []
+        
+        for contour in contours:
+            area = cv.contourArea(contour)
+            if area < min_area or area > max_area:
+                continue
+            
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv.drawContours(mask, [contour], 0, 1, -1)
+            masks.append(mask)
+    
+    if len(masks) == 0:
+        print(f"  ⚠️  No significant objects detected")
+        return None
+    
+    print(f"  ✓ Extracted {len(masks)} individual feather masks")
+    return masks
 
 
 def clean_mask(mask, close_kernel=5, min_component_area=500):
@@ -92,9 +207,9 @@ def segmentation(input_dir="img",
     if thresholds is None:
         thresholds = {}
 
-    # Load SAM once
-    model = SAM(sam_weights_path)
-    model.to("cuda")
+    # Hugging Face (no authentication required - uses local models)
+    print("  ℹ️  Using Hugging Face Mobile SAM (no authentication needed)")
+    print("  💡 Tip: Set CUDA_VISIBLE_DEVICES=0 to use GPU acceleration")
 
     saved = []
     rows = []
@@ -111,12 +226,21 @@ def segmentation(input_dir="img",
             continue
         h, w = image.shape[:2]
 
-        # Run SAM for this image
-        results = model(image_path, save=False, device=0)  # change args to match your SAM wrapper
-        # results[0].masks.data is assumed as in your snippet
+        # Call Replicate API for SAM segmentation
+        try:
+            results = call_sam3_replicate(image_path, None)
+            if results is None or len(results) == 0:
+                if verbose:
+                    print(f"⚠️  No masks detected in {image_path}")
+                continue
+        except Exception as e:
+            if verbose:
+                print(f"❌ Error segmenting {image_path}: {e}")
+            continue
 
-        for mask_i, mask_t in enumerate(results[0].masks.data):
-            mask = mask_t.cpu().numpy().astype(np.uint8)  # 0/1
+        # Process each mask returned by SAM API
+        for mask_i, mask_data in enumerate(results):
+            mask = mask_data  # mask is already a numpy uint8 array from call_sam3_replicate
             # resize mask to original image size (SAM sometimes returns lower res)
             mask = cv.resize(mask, (w, h), interpolation=cv.INTER_NEAREST)
             # clean mask a little

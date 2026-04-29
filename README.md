@@ -81,7 +81,7 @@ python pipeline.py -input=data_preprocessing/preprocessed/padding --skip-preproc
 ### Augmentation seule (mode standalone)
 
 ```bash
-python augmentation.py -folder=mon_dossier -limit=10000 -dest=dossier_sortie
+python augmentation.py -folder=D:\Master 2 Expert IA\Ydays\Images_Plumes-Dataset\Images_Plumes\Geai_des_chene_Passiform_garulus_glandarius -limit=10000 -dest=dossier_sortie
 ```
 
 ### Pipeline personnalisée en Python
